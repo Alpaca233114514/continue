@@ -9,6 +9,31 @@ import { IMessenger } from "../../../core/protocol/messenger";
 
 import { handleLLMError } from "./util/errorHandling";
 
+function stringifyThrownError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  try {
+    const stringified = JSON.stringify(error);
+    return stringified ?? String(error);
+  } catch {
+    return String(error);
+  }
+}
+
+function getThrownErrorCause(error: unknown): any {
+  if (error && typeof error === "object" && "cause" in error) {
+    return error.cause;
+  }
+
+  return undefined;
+}
+
 export class VsCodeWebviewProtocol
   implements IMessenger<FromWebviewProtocol, ToWebviewProtocol>
 {
@@ -90,7 +115,7 @@ export class VsCodeWebviewProtocol
             // Respond without an error, so the UI doesn't show the error component
             respond({ done: true, status: "error" });
           }
-          let message = e.message;
+          let message = stringifyThrownError(e);
           respond({ done: true, error: message, status: "error" });
 
           const stringified = JSON.stringify({ msg }, null, 2);
@@ -105,13 +130,14 @@ export class VsCodeWebviewProtocol
             return;
           }
 
-          if (e.cause) {
-            if (e.cause.name === "ConnectTimeoutError") {
+          const cause = getThrownErrorCause(e);
+          if (cause) {
+            if (cause.name === "ConnectTimeoutError") {
               message = `Connection timed out. If you expect it to take a long time to connect, you can increase the timeout in your config by setting "requestOptions": { "timeout": 10000 }. You can find the full config reference here: https://docs.continue.dev/reference/config`;
-            } else if (e.cause.code === "ECONNREFUSED") {
+            } else if (cause.code === "ECONNREFUSED") {
               message = `Connection was refused. This likely means that there is no server running at the specified URL. If you are running your own server you may need to set the "apiBase" parameter in config.json. For example, you can set up an OpenAI-compatible server like here: https://docs.continue.dev/reference/Model%20Providers/openai#openai-compatible-servers--apis`;
             } else {
-              message = `The request failed with "${e.cause.name}": ${e.cause.message}. If you're having trouble setting up Continue, please see the troubleshooting guide for help.`;
+              message = `The request failed with "${cause.name}": ${cause.message}. If you're having trouble setting up Continue, please see the troubleshooting guide for help.`;
             }
           }
 
@@ -140,7 +166,9 @@ export class VsCodeWebviewProtocol
               {
                 messageType: msg.messageType,
                 errorMsg: message.split("\n\n")[0],
-                stack: extractMinimalStackTraceInfo(e.stack),
+                stack: extractMinimalStackTraceInfo(
+                  e instanceof Error ? e.stack : undefined,
+                ),
               },
               false,
             );
